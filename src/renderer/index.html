@@ -3,11 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <title>Interview Copilot</title>
-    <!-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP -->
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
-    />
+    <!--
+      The Content-Security-Policy is injected into the production build only
+      (see electron.vite.config.ts). The Vite dev server needs inline scripts
+      for HMR, so no CSP is applied in development.
+    -->
   </head>
 
   <body>
