@@ -174,7 +174,7 @@ function App(): JSX.Element {
     return (
       <div className="app">
         <div className="header">
-          <span className="title">Interview Copilot</span>
+          <span className="title">Iview Protect</span>
         </div>
         <div className="pane-body">Loading…</div>
       </div>
@@ -188,7 +188,7 @@ function App(): JSX.Element {
       <div className="header">
         <span className="title">
           <span className={`dot ${capture.listening ? 'live' : ''}`} />
-          Interview Copilot
+          Iview Protect
         </span>
         <span className="spacer" />
         <button
