@@ -88,7 +88,7 @@ function registerShortcuts(): void {
 }
 
 app.whenReady().then(() => {
-  electronApp.setAppUserModelId('com.interviewcopilot.app')
+  electronApp.setAppUserModelId('com.iviewprotect.app')
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
