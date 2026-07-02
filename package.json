@@ -1,5 +1,5 @@
 {
-  "name": "interview-copilot",
+  "name": "iview-protect",
   "version": "1.0.0",
   "description": "Stealth real-time interview copilot: transcribes interview audio and streams AI answer suggestions in an overlay hidden from screen sharing.",
   "main": "./out/main/index.js",
