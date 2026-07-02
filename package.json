@@ -1,10 +1,10 @@
 {
   "name": "interview-copilot",
   "version": "1.0.0",
-  "description": "An Electron application with React and TypeScript",
+  "description": "Stealth real-time interview copilot: transcribes interview audio and streams AI answer suggestions in an overlay hidden from screen sharing.",
   "main": "./out/main/index.js",
-  "author": "example.com",
-  "homepage": "https://electron-vite.org",
+  "author": "",
+  "license": "MIT",
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint --cache .",

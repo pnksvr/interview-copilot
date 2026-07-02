@@ -1,5 +1,5 @@
-appId: com.electron.app
-productName: interview-copilot
+appId: com.interviewcopilot.app
+productName: Interview Copilot
 directories:
   buildResources: build
 files:
