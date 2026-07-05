@@ -1,5 +1,5 @@
 import { JSX } from 'react'
-import type { AppSettings } from '../../../shared/types'
+import type { AppSettings, LlmProfile } from '../../../shared/types'
 
 interface Props {
   settings: AppSettings
@@ -46,11 +46,35 @@ const PRESETS: Record<string, Preset> = {
   }
 }
 
+const presetKeyFor = (baseUrl: string): string =>
+  Object.keys(PRESETS).find((k) => PRESETS[k].baseUrl === baseUrl) ?? 'groq'
+
 export function SettingsPanel({ settings, onChange, onClose }: Props): JSX.Element {
   const applyPreset = (key: string): void => {
     const p = PRESETS[key]
     if (!p) return
     onChange({ llmProvider: p.provider, llmBaseUrl: p.baseUrl, llmModel: p.model })
+  }
+
+  const fallbacks = settings.llmFallbacks ?? []
+  const updateFallback = (i: number, patch: Partial<LlmProfile>): void => {
+    onChange({ llmFallbacks: fallbacks.map((f, idx) => (idx === i ? { ...f, ...patch } : f)) })
+  }
+  const addFallback = (): void => {
+    const p = PRESETS.openrouter
+    onChange({
+      llmFallbacks: [
+        ...fallbacks,
+        { provider: p.provider, baseUrl: p.baseUrl, model: p.model, apiKey: '' }
+      ]
+    })
+  }
+  const removeFallback = (i: number): void => {
+    onChange({ llmFallbacks: fallbacks.filter((_, idx) => idx !== i) })
+  }
+  const applyFallbackPreset = (i: number, key: string): void => {
+    const p = PRESETS[key]
+    if (p) updateFallback(i, { provider: p.provider, baseUrl: p.baseUrl, model: p.model })
   }
 
   return (
@@ -66,7 +90,7 @@ export function SettingsPanel({ settings, onChange, onClose }: Props): JSX.Eleme
         <div className="field">
           <label>Language model provider</label>
           <select
-            value={Object.keys(PRESETS).find((k) => PRESETS[k].baseUrl === settings.llmBaseUrl)}
+            value={presetKeyFor(settings.llmBaseUrl)}
             onChange={(e) => applyPreset(e.target.value)}
           >
             {Object.entries(PRESETS).map(([k, p]) => (
@@ -104,6 +128,80 @@ export function SettingsPanel({ settings, onChange, onClose }: Props): JSX.Eleme
             onChange={(e) => onChange({ llmApiKey: e.target.value })}
           />
           <div className="hint">Stored locally on this machine only.</div>
+        </div>
+
+        <div className="field">
+          <label>Fallback providers</label>
+          <div className="hint">
+            If the main model is rate-limited (429), the app automatically retries these in order —
+            so answers keep coming for a full interview. Tip: add OpenRouter and/or Gemini with their
+            own keys.
+          </div>
+          {fallbacks.map((f, i) => (
+            <div key={i} className="fallback">
+              <div className="row">
+                <select
+                  value={presetKeyFor(f.baseUrl)}
+                  onChange={(e) => applyFallbackPreset(i, e.target.value)}
+                >
+                  {Object.entries(PRESETS).map(([k, p]) => (
+                    <option key={k} value={k}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+                <button className="icon-btn" onClick={() => removeFallback(i)}>
+                  Remove
+                </button>
+              </div>
+              <div className="row">
+                <input
+                  value={f.model}
+                  placeholder="model"
+                  onChange={(e) => updateFallback(i, { model: e.target.value })}
+                />
+                <input
+                  type="password"
+                  value={f.apiKey}
+                  placeholder="API key for this provider"
+                  onChange={(e) => updateFallback(i, { apiKey: e.target.value })}
+                />
+              </div>
+              <input
+                value={f.baseUrl}
+                placeholder="API base URL"
+                onChange={(e) => updateFallback(i, { baseUrl: e.target.value })}
+              />
+            </div>
+          ))}
+          <button className="icon-btn add-fallback" onClick={addFallback}>
+            + Add fallback provider
+          </button>
+        </div>
+
+        <div className="row">
+          <div className="field">
+            <label>Answer length (max tokens)</label>
+            <input
+              type="number"
+              min={0}
+              step={100}
+              value={settings.maxAnswerTokens}
+              onChange={(e) => onChange({ maxAnswerTokens: Number(e.target.value) })}
+            />
+            <div className="hint">Shorter answers use fewer tokens. 0 = provider default.</div>
+          </div>
+          <div className="field">
+            <label>Max context chars</label>
+            <input
+              type="number"
+              min={0}
+              step={500}
+              value={settings.maxContextChars}
+              onChange={(e) => onChange({ maxContextChars: Number(e.target.value) })}
+            />
+            <div className="hint">Caps resume/JD/extra sent per question. 0 = no limit.</div>
+          </div>
         </div>
 
         <div className="field">
@@ -178,11 +276,11 @@ export function SettingsPanel({ settings, onChange, onClose }: Props): JSX.Eleme
             </select>
           </div>
           <div className="field">
-            <label>Transcribe every (ms)</label>
+            <label>Max phrase length (ms)</label>
             <input
               type="number"
-              min={2000}
-              step={500}
+              min={10000}
+              step={1000}
               value={settings.transcribeIntervalMs}
               onChange={(e) => onChange({ transcribeIntervalMs: Number(e.target.value) })}
             />
@@ -226,6 +324,8 @@ export function SettingsPanel({ settings, onChange, onClose }: Props): JSX.Eleme
             <span>Clear transcript & answer</span>
             <span className="kbd">Ctrl + Shift + M</span>
             <span>Toggle click-through</span>
+            <span className="kbd">Ctrl + Shift + ↓ / ↑</span>
+            <span>Scroll answers (no mouse needed)</span>
           </div>
         </div>
       </div>

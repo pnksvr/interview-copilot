@@ -178,11 +178,27 @@ body {
   min-height: 0;
 }
 .pane.transcript {
-  flex: 0 0 34%;
-  border-bottom: 1px solid var(--border);
+  flex: 0 0 130px;
 }
 .pane.answer {
   flex: 1;
+}
+
+/* Draggable divider between transcript and answer panes. */
+.resizer {
+  height: 6px;
+  flex: 0 0 6px;
+  cursor: row-resize;
+  background: var(--border);
+  -webkit-app-region: no-drag;
+}
+.resizer:hover {
+  background: var(--accent-2);
+}
+
+.head-actions {
+  display: flex;
+  gap: 6px;
 }
 
 .pane-head {
@@ -211,6 +227,24 @@ body {
 }
 .transcript-seg.q {
   color: var(--accent);
+  cursor: pointer;
+}
+.transcript-seg.q:hover {
+  text-decoration: underline;
+}
+
+/* Each answered question keeps its own card so follow-ups don't overwrite it. */
+.qa {
+  margin-bottom: 14px;
+  border-bottom: 1px dashed var(--border);
+  padding-bottom: 8px;
+}
+.qa:last-child {
+  border-bottom: none;
+}
+.qa-error {
+  color: var(--danger);
+  font-size: 12px;
 }
 
 .empty {
@@ -309,6 +343,26 @@ body {
 }
 .row > .field {
   flex: 1;
+}
+.row > select,
+.row > input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Fallback provider editor rows. */
+.fallback {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  margin: 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--panel);
+}
+.add-fallback {
+  margin-top: 4px;
 }
 
 .banner {

@@ -1,4 +1,4 @@
-import { JSX, useCallback, useEffect, useRef, useState } from 'react'
+import { JSX, useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { useAudioCapture } from './hooks/useAudioCapture'
 import { AnswerView } from './components/AnswerView'
 import { SettingsPanel } from './components/SettingsPanel'
@@ -12,26 +12,35 @@ interface Segment {
   isQuestion: boolean
 }
 
+// One question and its own streamed answer. Keeping a list (rather than a single
+// answer) means a follow-up question never wipes an earlier answer.
+interface QA {
+  id: string
+  question: string
+  answer: string
+  answering: boolean
+  error?: string
+}
+
 function App(): JSX.Element {
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [transcript, setTranscript] = useState<Segment[]>([])
-  const [question, setQuestion] = useState('')
-  const [answer, setAnswer] = useState('')
-  const [answering, setAnswering] = useState(false)
+  const [qas, setQas] = useState<QA[]>([])
   const [error, setError] = useState<string | null>(null)
   const [clickThrough, setClickThrough] = useState(false)
   const [captureSystem, setCaptureSystem] = useState(true)
   const [captureMic, setCaptureMic] = useState(false)
+  const [transcriptHeight, setTranscriptHeight] = useState(130)
+  const [transcriptCollapsed, setTranscriptCollapsed] = useState(false)
 
   const capture = useAudioCapture()
 
   const settingsRef = useRef<AppSettings | null>(null)
   const transcriptRef = useRef<Segment[]>([])
-  const askIdRef = useRef<string | null>(null)
   const lastAnsweredRef = useRef('')
   const transcriptEndRef = useRef<HTMLDivElement>(null)
-  const answerEndRef = useRef<HTMLDivElement>(null)
+  const answerBodyRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     settingsRef.current = settings
@@ -59,29 +68,32 @@ function App(): JSX.Element {
     (q: string) => {
       if (!q.trim()) return
       const id = uid()
-      askIdRef.current = id
       lastAnsweredRef.current = q
-      setQuestion(q)
-      setAnswer('')
-      setAnswering(true)
+      setQas((prev) => [...prev, { id, question: q, answer: '', answering: true }])
       setError(null)
       window.api.ask(id, q, recentContext()).then((res) => {
-        if (!res.ok && res.error) setError(res.error)
+        if (!res.ok && res.error) {
+          setQas((prev) =>
+            prev.map((x) => (x.id === id ? { ...x, answering: false, error: res.error } : x))
+          )
+        }
       })
     },
     [recentContext]
   )
 
-  // Subscribe to streamed answer tokens.
+  // Subscribe to streamed answer tokens, routing each event to its own card.
   useEffect(() => {
     return window.api.onLlmStream((event) => {
-      if (event.id !== askIdRef.current) return
-      if (event.type === 'delta') setAnswer((prev) => prev + event.text)
-      else if (event.type === 'done') setAnswering(false)
-      else if (event.type === 'error') {
-        setAnswering(false)
-        setError(event.message)
-      }
+      setQas((prev) =>
+        prev.map((x) => {
+          if (x.id !== event.id) return x
+          if (event.type === 'delta') return { ...x, answer: x.answer + event.text }
+          if (event.type === 'done') return { ...x, answering: false }
+          if (event.type === 'error') return { ...x, answering: false, error: event.message }
+          return x
+        })
+      )
     })
   }, [])
 
@@ -112,7 +124,7 @@ function App(): JSX.Element {
     }
     capture.start({
       sources: { system: captureSystem, mic: captureMic },
-      intervalMs: s.transcribeIntervalMs,
+      maxPhraseMs: s.transcribeIntervalMs,
       onChunk: handleChunk
     })
   }, [capture, captureSystem, captureMic, handleChunk])
@@ -124,8 +136,7 @@ function App(): JSX.Element {
 
   const clearAll = useCallback(() => {
     setTranscript([])
-    setQuestion('')
-    setAnswer('')
+    setQas([])
     lastAnsweredRef.current = ''
   }, [])
 
@@ -143,6 +154,10 @@ function App(): JSX.Element {
     })
   }, [])
 
+  const scrollAnswer = useCallback((delta: number) => {
+    answerBodyRef.current?.scrollBy({ top: delta, behavior: 'smooth' })
+  }, [])
+
   // Global hotkeys forwarded from the main process.
   useEffect(() => {
     return window.api.onHotkey((action) => {
@@ -150,16 +165,40 @@ function App(): JSX.Element {
       else if (action === 'toggle-listening') toggleListening()
       else if (action === 'clear') clearAll()
       else if (action === 'toggle-clickthrough') toggleClickThrough()
+      else if (action === 'scroll-answer-down') scrollAnswer(220)
+      else if (action === 'scroll-answer-up') scrollAnswer(-220)
     })
-  }, [answerNow, toggleListening, clearAll, toggleClickThrough])
+  }, [answerNow, toggleListening, clearAll, toggleClickThrough, scrollAnswer])
 
-  // Auto-scroll panes.
+  // Auto-scroll the transcript, and keep the newest answer in view while it streams.
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [transcript])
   useEffect(() => {
-    answerEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [answer])
+    const last = qas[qas.length - 1]
+    if (last?.answering && answerBodyRef.current) {
+      answerBodyRef.current.scrollTop = answerBodyRef.current.scrollHeight
+    }
+  }, [qas])
+
+  // Drag the divider to resize the transcript pane.
+  const startResize = useCallback(
+    (e: ReactMouseEvent) => {
+      e.preventDefault()
+      const startY = e.clientY
+      const startH = transcriptHeight
+      const onMove = (ev: MouseEvent): void => {
+        setTranscriptHeight(Math.max(48, Math.min(480, startH + (ev.clientY - startY))))
+      }
+      const onUp = (): void => {
+        window.removeEventListener('mousemove', onMove)
+        window.removeEventListener('mouseup', onUp)
+      }
+      window.addEventListener('mousemove', onMove)
+      window.addEventListener('mouseup', onUp)
+    },
+    [transcriptHeight]
+  )
 
   const persist = useCallback((patch: Partial<AppSettings>) => {
     setSettings((prev) => {
@@ -242,40 +281,70 @@ function App(): JSX.Element {
       </div>
 
       <div className="panes">
-        <div className="pane transcript">
+        <div
+          className="pane transcript"
+          style={{ flex: `0 0 ${transcriptCollapsed ? 0 : transcriptHeight}px` }}
+        >
           <div className="pane-head">
             <span>Live transcript</span>
-            <button className="icon-btn" onClick={clearAll}>
-              Clear
-            </button>
+            <span className="head-actions">
+              <button
+                className="icon-btn"
+                title={transcriptCollapsed ? 'Show transcript' : 'Hide transcript'}
+                onClick={() => setTranscriptCollapsed((v) => !v)}
+              >
+                {transcriptCollapsed ? 'Show' : 'Hide'}
+              </button>
+              <button className="icon-btn" onClick={clearAll}>
+                Clear
+              </button>
+            </span>
           </div>
-          <div className="pane-body">
-            {transcript.length === 0 && <div className="empty">Waiting for audio…</div>}
-            {transcript.map((s) => (
-              <div key={s.id} className={`transcript-seg ${s.isQuestion ? 'q' : ''}`}>
-                {s.text}
-              </div>
-            ))}
-            <div ref={transcriptEndRef} />
-          </div>
+          {!transcriptCollapsed && (
+            <div className="pane-body">
+              {transcript.length === 0 && <div className="empty">Waiting for audio…</div>}
+              {transcript.map((s) => (
+                <div
+                  key={s.id}
+                  className={`transcript-seg ${s.isQuestion ? 'q' : ''}`}
+                  title={s.isQuestion ? 'Click to answer this question' : undefined}
+                  onClick={s.isQuestion ? () => ask(s.text) : undefined}
+                >
+                  {s.text}
+                </div>
+              ))}
+              <div ref={transcriptEndRef} />
+            </div>
+          )}
         </div>
+
+        {!transcriptCollapsed && (
+          <div className="resizer" onMouseDown={startResize} title="Drag to resize" />
+        )}
 
         <div className="pane answer">
           <div className="pane-head">
-            <span>Suggested answer</span>
+            <span>Suggested answers</span>
             <button className="icon-btn" onClick={answerNow} disabled={!hasKey}>
               Answer now
             </button>
           </div>
-          <div className="pane-body">
-            {question && <div className="question-chip">{question}</div>}
-            {!answer && !answering && (
+          <div className="pane-body" ref={answerBodyRef}>
+            {qas.length === 0 && (
               <div className="empty">
                 Answers appear here. Detected questions are answered automatically.
               </div>
             )}
-            <AnswerView text={answer} streaming={answering} />
-            <div ref={answerEndRef} />
+            {qas.map((qa) => (
+              <div className="qa" key={qa.id}>
+                <div className="question-chip">{qa.question}</div>
+                {qa.error ? (
+                  <div className="qa-error">{qa.error}</div>
+                ) : (
+                  <AnswerView text={qa.answer} streaming={qa.answering} />
+                )}
+              </div>
+            ))}
           </div>
         </div>
       </div>
