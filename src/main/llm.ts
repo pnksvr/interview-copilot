@@ -1,4 +1,4 @@
-import type { AppSettings } from '../shared/types'
+import type { AppSettings, LlmProfile } from '../shared/types'
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
@@ -15,26 +15,53 @@ Rules:
 - Never mention that you are an AI or that the user is using an assistant.
 - Answer in the same language the question was asked in.`
 
+/** Trims a context field to at most `max` characters (0 = no limit). */
+function clip(text: string, max: number): string {
+  const t = text.trim()
+  if (max > 0 && t.length > max) return t.slice(0, max)
+  return t
+}
+
 function buildMessages(settings: AppSettings, question: string, context: string): ChatMessage[] {
+  const max = settings.maxContextChars ?? 0
   const profile: string[] = []
-  if (settings.resume.trim()) profile.push(`# Candidate resume\n${settings.resume.trim()}`)
+  if (settings.resume.trim()) profile.push(`# Candidate resume\n${clip(settings.resume, max)}`)
   if (settings.jobDescription.trim())
-    profile.push(`# Job description\n${settings.jobDescription.trim()}`)
+    profile.push(`# Job description\n${clip(settings.jobDescription, max)}`)
   if (settings.extraContext.trim())
-    profile.push(`# Additional context\n${settings.extraContext.trim()}`)
+    profile.push(`# Additional context\n${clip(settings.extraContext, max)}`)
+
+  const ctxMax = max > 0 ? Math.min(1500, max) : 1500
+  const ctx = context.trim().slice(-ctxMax)
 
   const messages: ChatMessage[] = [{ role: 'system', content: SYSTEM_PROMPT }]
   if (profile.length) messages.push({ role: 'system', content: profile.join('\n\n') })
-  const user = context.trim()
-    ? `Recent interview transcript (for context):\n${context.trim()}\n\nThe interviewer just asked:\n"${question}"\n\nGive me the best answer to say.`
+  const user = ctx
+    ? `Recent interview transcript (for context):\n${ctx}\n\nThe interviewer just asked:\n"${question}"\n\nGive me the best answer to say.`
     : `The interviewer just asked:\n"${question}"\n\nGive me the best answer to say.`
   messages.push({ role: 'user', content: user })
   return messages
 }
 
+/** The primary model plus any configured fallbacks, in priority order. */
+function collectProfiles(settings: AppSettings): LlmProfile[] {
+  const primary: LlmProfile = {
+    provider: settings.llmProvider,
+    baseUrl: settings.llmBaseUrl,
+    apiKey: settings.llmApiKey,
+    model: settings.llmModel
+  }
+  const all = [primary, ...(settings.llmFallbacks ?? [])]
+  // A usable profile needs an endpoint and model, plus a key unless it is local.
+  return all.filter(
+    (p) => p.baseUrl && p.model && (p.apiKey || p.baseUrl.includes('localhost') || p.baseUrl.includes('127.0.0.1'))
+  )
+}
+
 /**
- * Streams an answer from the configured provider, invoking `onDelta` for each
- * text chunk. Resolves when the stream completes. Throws on transport errors.
+ * Streams an answer, automatically failing over to the next configured provider
+ * if one errors (e.g. a rate limit) before any answer text has been emitted.
+ * Once tokens start streaming we stay on that provider so the answer is coherent.
  */
 export async function streamAnswer(
   settings: AppSettings,
@@ -44,33 +71,56 @@ export async function streamAnswer(
   signal: AbortSignal
 ): Promise<void> {
   const messages = buildMessages(settings, question, context)
-  if (settings.llmProvider === 'gemini') {
-    await streamGemini(settings, messages, onDelta, signal)
-  } else {
-    await streamOpenAICompatible(settings, messages, onDelta, signal)
+  const profiles = collectProfiles(settings)
+  if (!profiles.length) throw new Error('No language model is configured. Add an API key in Settings.')
+
+  const maxTokens = settings.maxAnswerTokens ?? 0
+  let emitted = false
+  const emit = (text: string): void => {
+    emitted = true
+    onDelta(text)
   }
+
+  let lastErr: unknown
+  for (const p of profiles) {
+    try {
+      if (p.provider === 'gemini') await streamGemini(p, messages, maxTokens, emit, signal)
+      else await streamOpenAICompatible(p, messages, maxTokens, emit, signal)
+      return
+    } catch (err) {
+      if (signal.aborted) throw err
+      lastErr = err
+      // Only fail over if nothing has streamed yet; otherwise surface the error.
+      if (emitted) throw err
+    }
+  }
+  throw lastErr ?? new Error('All language model providers failed.')
 }
 
 async function streamOpenAICompatible(
-  settings: AppSettings,
+  profile: LlmProfile,
   messages: ChatMessage[],
+  maxTokens: number,
   onDelta: (text: string) => void,
   signal: AbortSignal
 ): Promise<void> {
-  const base = settings.llmBaseUrl.replace(/\/$/, '')
+  const base = profile.baseUrl.replace(/\/$/, '')
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (settings.llmApiKey) headers.Authorization = `Bearer ${settings.llmApiKey}`
+  if (profile.apiKey) headers.Authorization = `Bearer ${profile.apiKey}`
+
+  const body: Record<string, unknown> = {
+    model: profile.model,
+    messages,
+    temperature: 0.4,
+    stream: true
+  }
+  if (maxTokens > 0) body.max_tokens = maxTokens
 
   const res = await fetch(`${base}/chat/completions`, {
     method: 'POST',
     headers,
     signal,
-    body: JSON.stringify({
-      model: settings.llmModel,
-      messages,
-      temperature: 0.4,
-      stream: true
-    })
+    body: JSON.stringify(body)
   })
 
   if (!res.ok || !res.body) {
@@ -90,12 +140,13 @@ async function streamOpenAICompatible(
 }
 
 async function streamGemini(
-  settings: AppSettings,
+  profile: LlmProfile,
   messages: ChatMessage[],
+  maxTokens: number,
   onDelta: (text: string) => void,
   signal: AbortSignal
 ): Promise<void> {
-  const base = (settings.llmBaseUrl || 'https://generativelanguage.googleapis.com/v1beta').replace(
+  const base = (profile.baseUrl || 'https://generativelanguage.googleapis.com/v1beta').replace(
     /\/$/,
     ''
   )
@@ -104,7 +155,10 @@ async function streamGemini(
     .filter((m) => m.role !== 'system')
     .map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }))
 
-  const url = `${base}/models/${settings.llmModel}:streamGenerateContent?alt=sse&key=${settings.llmApiKey}`
+  const generationConfig: Record<string, unknown> = { temperature: 0.4 }
+  if (maxTokens > 0) generationConfig.maxOutputTokens = maxTokens
+
+  const url = `${base}/models/${profile.model}:streamGenerateContent?alt=sse&key=${profile.apiKey}`
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -112,7 +166,7 @@ async function streamGemini(
     body: JSON.stringify({
       contents,
       systemInstruction: system.length ? { parts: [{ text: system.join('\n\n') }] } : undefined,
-      generationConfig: { temperature: 0.4 }
+      generationConfig
     })
   })
 

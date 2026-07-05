@@ -88,6 +88,10 @@ function registerShortcuts(): void {
   globalShortcut.register('CommandOrControl+Shift+K', () => sendHotkey('clear'))
   // Toggle click-through (mouse passes through the overlay).
   globalShortcut.register('CommandOrControl+Shift+M', () => sendHotkey('toggle-clickthrough'))
+  // Scroll the answer pane without touching the mouse (keeps the cursor still
+  // during a screen share, where the OS cursor is captured but the overlay is not).
+  globalShortcut.register('CommandOrControl+Shift+Down', () => sendHotkey('scroll-answer-down'))
+  globalShortcut.register('CommandOrControl+Shift+Up', () => sendHotkey('scroll-answer-up'))
 }
 
 app.whenReady().then(() => {
