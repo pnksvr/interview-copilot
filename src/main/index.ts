@@ -37,7 +37,10 @@ function createWindow(): void {
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: false,
+      // Keep audio capture and timers running while the overlay is unfocused
+      // (the user is looking at the meeting window, not this one).
+      backgroundThrottling: false
     }
   })
 

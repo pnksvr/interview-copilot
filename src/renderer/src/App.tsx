@@ -112,7 +112,7 @@ function App(): JSX.Element {
     }
     capture.start({
       sources: { system: captureSystem, mic: captureMic },
-      intervalMs: s.transcribeIntervalMs,
+      maxPhraseMs: s.transcribeIntervalMs,
       onChunk: handleChunk
     })
   }, [capture, captureSystem, captureMic, handleChunk])

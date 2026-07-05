@@ -14,14 +14,18 @@ export const DEFAULT_SETTINGS: AppSettings = {
   sttBaseUrl: 'https://api.groq.com/openai/v1',
   sttApiKey: '',
   sttModel: 'whisper-large-v3-turbo',
-  sttLanguage: '',
+  // Pin transcription to English by default: interviews here are in English and
+  // a fixed language stops Whisper from hallucinating foreign text on silence.
+  sttLanguage: 'en',
 
   resume: '',
   jobDescription: '',
   extraContext: '',
 
   autoAnswer: true,
-  transcribeIntervalMs: 4000,
+  // Safety cap: flush an utterance for transcription if the speaker never pauses.
+  // Normal segmentation happens on the pause between questions.
+  transcribeIntervalMs: 15000,
 
   contentProtection: true,
   opacity: 1

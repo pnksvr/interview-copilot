@@ -178,11 +178,11 @@ export function SettingsPanel({ settings, onChange, onClose }: Props): JSX.Eleme
             </select>
           </div>
           <div className="field">
-            <label>Transcribe every (ms)</label>
+            <label>Max phrase length (ms)</label>
             <input
               type="number"
-              min={2000}
-              step={500}
+              min={10000}
+              step={1000}
               value={settings.transcribeIntervalMs}
               onChange={(e) => onChange({ transcribeIntervalMs: Number(e.target.value) })}
             />
