@@ -1,5 +1,5 @@
 import { JSX } from 'react'
-import type { AppSettings } from '../../../shared/types'
+import type { AppSettings, FallbackProvider, LlmProviderKind } from '../../../shared/types'
 
 interface Props {
   settings: AppSettings
@@ -46,12 +46,32 @@ const PRESETS: Record<string, Preset> = {
   }
 }
 
+function patchFallback(
+  providers: FallbackProvider[],
+  index: number,
+  patch: Partial<FallbackProvider>
+): FallbackProvider[] {
+  return providers.map((p, i) => (i === index ? { ...p, ...patch } : p))
+}
+
+function applyFallbackPreset(
+  providers: FallbackProvider[],
+  index: number,
+  key: string
+): FallbackProvider[] {
+  const p = PRESETS[key]
+  if (!p) return providers
+  return patchFallback(providers, index, { provider: p.provider, baseUrl: p.baseUrl, model: p.model })
+}
+
 export function SettingsPanel({ settings, onChange, onClose }: Props): JSX.Element {
   const applyPreset = (key: string): void => {
     const p = PRESETS[key]
     if (!p) return
     onChange({ llmProvider: p.provider, llmBaseUrl: p.baseUrl, llmModel: p.model })
   }
+
+  const fallbacks = settings.llmFallbackProviders ?? []
 
   return (
     <div className="settings">
@@ -63,10 +83,13 @@ export function SettingsPanel({ settings, onChange, onClose }: Props): JSX.Eleme
         </button>
       </div>
       <div className="pane-body">
+
+        {/* ─── Primary LLM ─── */}
+        <div className="section-label">Primary language model</div>
         <div className="field">
-          <label>Language model provider</label>
+          <label>Provider preset</label>
           <select
-            value={Object.keys(PRESETS).find((k) => PRESETS[k].baseUrl === settings.llmBaseUrl)}
+            value={Object.keys(PRESETS).find((k) => PRESETS[k].baseUrl === settings.llmBaseUrl) ?? ''}
             onChange={(e) => applyPreset(e.target.value)}
           >
             {Object.entries(PRESETS).map(([k, p]) => (
@@ -106,8 +129,124 @@ export function SettingsPanel({ settings, onChange, onClose }: Props): JSX.Eleme
           <div className="hint">Stored locally on this machine only.</div>
         </div>
 
+        {/* ─── Fallback providers ─── */}
+        <div className="section-label">
+          Fallback providers{' '}
+          <span className="hint-inline">
+            — tried in order when the primary fails (keeps working 1–1.5 h)
+          </span>
+        </div>
+
+        {fallbacks.map((fb, i) => (
+          <div key={i} className="fallback-slot">
+            <div className="fallback-slot-head">
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={fb.enabled}
+                  onChange={(e) =>
+                    onChange({
+                      llmFallbackProviders: patchFallback(fallbacks, i, { enabled: e.target.checked })
+                    })
+                  }
+                />
+                <span>{fb.label}</span>
+              </label>
+              <input
+                className="fb-label-input"
+                value={fb.label}
+                placeholder="Label"
+                onChange={(e) =>
+                  onChange({
+                    llmFallbackProviders: patchFallback(fallbacks, i, { label: e.target.value })
+                  })
+                }
+              />
+            </div>
+            {fb.enabled && (
+              <>
+                <div className="row">
+                  <div className="field">
+                    <label>Preset</label>
+                    <select
+                      value={Object.keys(PRESETS).find((k) => PRESETS[k].baseUrl === fb.baseUrl) ?? ''}
+                      onChange={(e) =>
+                        onChange({
+                          llmFallbackProviders: applyFallbackPreset(fallbacks, i, e.target.value)
+                        })
+                      }
+                    >
+                      <option value="">— custom —</option>
+                      {Object.entries(PRESETS).map(([k, p]) => (
+                        <option key={k} value={k}>
+                          {p.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>Provider type</label>
+                    <select
+                      value={fb.provider}
+                      onChange={(e) =>
+                        onChange({
+                          llmFallbackProviders: patchFallback(fallbacks, i, {
+                            provider: e.target.value as LlmProviderKind
+                          })
+                        })
+                      }
+                    >
+                      <option value="openai">OpenAI-compatible</option>
+                      <option value="gemini">Google Gemini</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="row">
+                  <div className="field">
+                    <label>Base URL</label>
+                    <input
+                      value={fb.baseUrl}
+                      onChange={(e) =>
+                        onChange({
+                          llmFallbackProviders: patchFallback(fallbacks, i, { baseUrl: e.target.value })
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="field">
+                    <label>Model</label>
+                    <input
+                      value={fb.model}
+                      onChange={(e) =>
+                        onChange({
+                          llmFallbackProviders: patchFallback(fallbacks, i, { model: e.target.value })
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+                <div className="field">
+                  <label>API key</label>
+                  <input
+                    type="password"
+                    value={fb.apiKey}
+                    placeholder="paste key for this provider"
+                    onChange={(e) =>
+                      onChange({
+                        llmFallbackProviders: patchFallback(fallbacks, i, { apiKey: e.target.value })
+                      })
+                    }
+                  />
+                </div>
+              </>
+            )}
+          </div>
+        ))}
+
+        {/* ─── STT ─── */}
+        <div className="section-label">Speech-to-text (Whisper)</div>
         <div className="field">
-          <label>Speech-to-text (Whisper) endpoint</label>
+          <label>Endpoint &amp; model</label>
           <div className="row">
             <input
               value={settings.sttBaseUrl}
@@ -141,6 +280,8 @@ export function SettingsPanel({ settings, onChange, onClose }: Props): JSX.Eleme
           </div>
         </div>
 
+        {/* ─── Context ─── */}
+        <div className="section-label">Your profile</div>
         <div className="field">
           <label>Your resume</label>
           <textarea
@@ -166,6 +307,8 @@ export function SettingsPanel({ settings, onChange, onClose }: Props): JSX.Eleme
           />
         </div>
 
+        {/* ─── Behaviour ─── */}
+        <div className="section-label">Behaviour</div>
         <div className="row">
           <div className="field">
             <label>Auto-answer detected questions</label>
@@ -191,6 +334,24 @@ export function SettingsPanel({ settings, onChange, onClose }: Props): JSX.Eleme
 
         <div className="row">
           <div className="field">
+            <label>Follow-up noise cooldown (ms)</label>
+            <input
+              type="number"
+              min={0}
+              step={1000}
+              value={settings.questionCooldownMs}
+              onChange={(e) => onChange({ questionCooldownMs: Number(e.target.value) })}
+            />
+            <div className="hint">
+              Short follow-ups ("are you there?", "go ahead") within this window are ignored.
+            </div>
+          </div>
+        </div>
+
+        {/* ─── Stealth ─── */}
+        <div className="section-label">Stealth &amp; window</div>
+        <div className="row">
+          <div className="field">
             <label>Hide from screen share</label>
             <select
               value={settings.contentProtection ? 'on' : 'off'}
@@ -214,6 +375,17 @@ export function SettingsPanel({ settings, onChange, onClose }: Props): JSX.Eleme
         </div>
 
         <div className="field">
+          <label>Mouse activity during screen share</label>
+          <div className="hint" style={{ marginTop: 4 }}>
+            Enable <strong>Click-through</strong> mode (Ctrl+Shift+M) so the overlay never
+            receives mouse events. The overlay itself is already hidden from the interviewer's
+            screen share via content protection — enabling click-through means your mouse
+            movements inside the overlay area also pass through to whatever app is behind it,
+            so they look natural.
+          </div>
+        </div>
+
+        <div className="field">
           <label>Global hotkeys</label>
           <div className="hotkeys">
             <span className="kbd">Ctrl + \</span>
@@ -223,9 +395,9 @@ export function SettingsPanel({ settings, onChange, onClose }: Props): JSX.Eleme
             <span className="kbd">Ctrl + Shift + L</span>
             <span>Start / stop listening</span>
             <span className="kbd">Ctrl + Shift + K</span>
-            <span>Clear transcript & answer</span>
+            <span>Clear transcript &amp; answer</span>
             <span className="kbd">Ctrl + Shift + M</span>
-            <span>Toggle click-through</span>
+            <span>Toggle click-through (hides mouse from overlay)</span>
           </div>
         </div>
       </div>

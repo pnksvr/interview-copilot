@@ -11,6 +11,27 @@ export const DEFAULT_SETTINGS: AppSettings = {
   llmApiKey: '',
   llmModel: 'llama-3.3-70b-versatile',
 
+  // Secondary providers tried in order when the primary fails (rate-limit, etc.).
+  // Configure these to keep the app running for 1-1.5 h straight.
+  llmFallbackProviders: [
+    {
+      label: 'Gemini (fallback 1)',
+      provider: 'gemini',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+      apiKey: '',
+      model: 'gemini-2.0-flash',
+      enabled: false
+    },
+    {
+      label: 'OpenRouter (fallback 2)',
+      provider: 'openai',
+      baseUrl: 'https://openrouter.ai/api/v1',
+      apiKey: '',
+      model: 'meta-llama/llama-3.3-70b-instruct:free',
+      enabled: false
+    }
+  ],
+
   sttBaseUrl: 'https://api.groq.com/openai/v1',
   sttApiKey: '',
   sttModel: 'whisper-large-v3-turbo',
@@ -22,6 +43,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
   autoAnswer: true,
   transcribeIntervalMs: 4000,
+  // Ignore new auto-answer triggers for 8 seconds after the last one, to
+  // suppress follow-up noise ("are you there?", "can you start?").
+  questionCooldownMs: 8000,
 
   contentProtection: true,
   opacity: 1

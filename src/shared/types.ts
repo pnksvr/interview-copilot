@@ -2,12 +2,29 @@
 
 export type LlmProviderKind = 'openai' | 'gemini'
 
+/** A secondary (fallback) LLM provider tried automatically when the primary fails. */
+export interface FallbackProvider {
+  label: string
+  provider: LlmProviderKind
+  baseUrl: string
+  apiKey: string
+  model: string
+  enabled: boolean
+}
+
 export interface AppSettings {
   // Language model used to generate answers.
   llmProvider: LlmProviderKind
   llmBaseUrl: string
   llmApiKey: string
   llmModel: string
+
+  /**
+   * Secondary providers tried in order when the primary fails.
+   * Allows the app to keep running for long interviews even when one free-tier
+   * provider hits a rate-limit.
+   */
+  llmFallbackProviders: FallbackProvider[]
 
   // Speech-to-text engine (OpenAI-compatible audio transcription endpoint).
   sttBaseUrl: string
@@ -23,6 +40,12 @@ export interface AppSettings {
   // Behaviour.
   autoAnswer: boolean // automatically answer detected questions
   transcribeIntervalMs: number // how often captured audio is flushed to the STT engine
+  /**
+   * Minimum milliseconds between auto-answer triggers.  If a new question is
+   * detected within this window (e.g. "are you there?" right after the main
+   * question) it is silently ignored.
+   */
+  questionCooldownMs: number
 
   // Stealth / window behaviour.
   contentProtection: boolean // hide the window from screen capture

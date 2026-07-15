@@ -177,23 +177,63 @@ body {
   flex-direction: column;
   min-height: 0;
 }
+
+/*
+ * Transcript pane — collapses down to just its header row so the answer pane
+ * can use the reclaimed space.  The header alone is ~30px.
+ */
 .pane.transcript {
-  flex: 0 0 34%;
+  flex: 0 0 auto;
   border-bottom: 1px solid var(--border);
+  transition: max-height 0.2s ease;
+  max-height: 38%; /* expanded: up to 38% of pane area */
+  overflow: hidden;
 }
+.pane.transcript.collapsed {
+  max-height: 30px; /* just enough to show the header button */
+}
+.pane.transcript .pane-body {
+  /* allow internal scroll when expanded */
+  overflow-y: auto;
+  flex: 1;
+}
+
 .pane.answer {
   flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.collapse-btn {
+  font-size: 11px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 2px 4px;
+  cursor: pointer;
+  letter-spacing: 0.3px;
+}
+.collapse-btn:hover {
+  color: var(--text);
+  background: transparent;
 }
 
 .pane-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 7px 10px 3px;
+  padding: 5px 10px 3px;
   color: var(--muted);
   font-size: 10.5px;
   text-transform: uppercase;
   letter-spacing: 0.6px;
+  flex-shrink: 0;
+}
+
+.pane-head-actions {
+  display: flex;
+  gap: 6px;
 }
 
 .pane-body {
@@ -219,6 +259,52 @@ body {
   padding: 6px 0;
 }
 
+/* ---- Question history chips ---- */
+.q-history {
+  display: flex;
+  flex-direction: row;
+  gap: 5px;
+  padding: 4px 10px 0;
+  overflow-x: auto;
+  flex-shrink: 0;
+  /* hide scrollbar but keep scrollable */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.q-history::-webkit-scrollbar {
+  height: 4px;
+}
+.q-history::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+.q-hist-chip {
+  flex-shrink: 0;
+  max-width: 200px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 3px 9px;
+  font-size: 10.5px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.q-hist-chip:hover {
+  background: var(--panel-strong);
+  color: var(--text);
+}
+.q-hist-chip.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(110, 231, 183, 0.08);
+}
+
+/* ---- Current question chip ---- */
 .question-chip {
   background: var(--panel-strong);
   border: 1px solid var(--border);
@@ -227,6 +313,7 @@ body {
   border-radius: 6px;
   margin-bottom: 8px;
   color: var(--accent);
+  font-size: 12px;
 }
 
 .answer-body p {
@@ -309,6 +396,51 @@ body {
 }
 .row > .field {
   flex: 1;
+}
+
+/* ---- Section labels inside settings ---- */
+.section-label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+  margin: 14px 0 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.hint-inline {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 10px;
+}
+
+/* ---- Fallback provider slots ---- */
+.fallback-slot {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+.fallback-slot-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.fb-label-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  color: var(--text);
+  padding: 2px 4px;
+  font-size: 11px;
+}
+.fb-label-input:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 .banner {

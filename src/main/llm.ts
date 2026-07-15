@@ -1,4 +1,4 @@
-import type { AppSettings } from '../shared/types'
+import type { AppSettings, FallbackProvider, LlmProviderKind } from '../shared/types'
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
@@ -15,40 +15,120 @@ Rules:
 - Never mention that you are an AI or that the user is using an assistant.
 - Answer in the same language the question was asked in.`
 
-function buildMessages(settings: AppSettings, question: string, context: string): ChatMessage[] {
+/**
+ * Trim a string to at most `maxChars` characters, keeping the tail (most
+ * recent content is more relevant than the beginning).
+ */
+function tail(s: string, maxChars: number): string {
+  if (s.length <= maxChars) return s
+  return '…' + s.slice(s.length - maxChars + 1)
+}
+
+function buildMessages(
+  settings: AppSettings,
+  question: string,
+  context: string,
+  overrides?: { apiKey?: string; baseUrl?: string; model?: string; provider?: LlmProviderKind }
+): ChatMessage[] {
+  void overrides // resolved by caller; included for signature clarity
+
   const profile: string[] = []
-  if (settings.resume.trim()) profile.push(`# Candidate resume\n${settings.resume.trim()}`)
+  // Cap each personalisation block to prevent runaway token usage.
+  if (settings.resume.trim()) profile.push(`# Candidate resume\n${settings.resume.trim().slice(0, 1200)}`)
   if (settings.jobDescription.trim())
-    profile.push(`# Job description\n${settings.jobDescription.trim()}`)
+    profile.push(`# Job description\n${settings.jobDescription.trim().slice(0, 800)}`)
   if (settings.extraContext.trim())
-    profile.push(`# Additional context\n${settings.extraContext.trim()}`)
+    profile.push(`# Additional context\n${settings.extraContext.trim().slice(0, 400)}`)
 
   const messages: ChatMessage[] = [{ role: 'system', content: SYSTEM_PROMPT }]
   if (profile.length) messages.push({ role: 'system', content: profile.join('\n\n') })
-  const user = context.trim()
-    ? `Recent interview transcript (for context):\n${context.trim()}\n\nThe interviewer just asked:\n"${question}"\n\nGive me the best answer to say.`
+
+  // Keep only the most recent context to avoid hitting token limits during long
+  // interviews (context grows unboundedly if uncapped).
+  const trimmedContext = tail(context.trim(), 1200)
+  const user = trimmedContext
+    ? `Recent interview transcript (for context):\n${trimmedContext}\n\nThe interviewer just asked:\n"${question}"\n\nGive me the best answer to say.`
     : `The interviewer just asked:\n"${question}"\n\nGive me the best answer to say.`
   messages.push({ role: 'user', content: user })
   return messages
 }
 
+interface ProviderSlot {
+  provider: LlmProviderKind
+  baseUrl: string
+  apiKey: string
+  model: string
+}
+
+function primarySlot(settings: AppSettings): ProviderSlot {
+  return {
+    provider: settings.llmProvider,
+    baseUrl: settings.llmBaseUrl,
+    apiKey: settings.llmApiKey,
+    model: settings.llmModel
+  }
+}
+
+function fallbackSlots(settings: AppSettings): ProviderSlot[] {
+  return (settings.llmFallbackProviders ?? [])
+    .filter((fb: FallbackProvider) => fb.enabled && fb.baseUrl.trim() && fb.model.trim())
+    .map((fb: FallbackProvider) => ({
+      provider: fb.provider,
+      baseUrl: fb.baseUrl,
+      apiKey: fb.apiKey,
+      model: fb.model
+    }))
+}
+
 /**
- * Streams an answer from the configured provider, invoking `onDelta` for each
- * text chunk. Resolves when the stream completes. Throws on transport errors.
+ * Streams an answer, automatically falling back through configured secondary
+ * providers if the primary fails (rate-limit, network error, etc.).  This
+ * allows the app to keep running for 1–1.5 h even when a free-tier provider
+ * runs out of credits.
+ *
+ * `onDelta` is called for each text chunk.  `onProviderSwitch` (optional) lets
+ * the renderer notify the user when a fallback is activated.
  */
 export async function streamAnswer(
   settings: AppSettings,
   question: string,
   context: string,
   onDelta: (text: string) => void,
-  signal: AbortSignal
+  signal: AbortSignal,
+  onProviderSwitch?: (label: string) => void
 ): Promise<void> {
-  const messages = buildMessages(settings, question, context)
-  if (settings.llmProvider === 'gemini') {
-    await streamGemini(settings, messages, onDelta, signal)
-  } else {
-    await streamOpenAICompatible(settings, messages, onDelta, signal)
+  const chain: ProviderSlot[] = [primarySlot(settings), ...fallbackSlots(settings)]
+
+  let lastError: Error = new Error('No providers configured')
+  for (let i = 0; i < chain.length; i++) {
+    if (signal.aborted) throw new Error('Aborted')
+    const slot = chain[i]
+    try {
+      if (i > 0 && onProviderSwitch) {
+        const fb = settings.llmFallbackProviders[i - 1]
+        onProviderSwitch(fb?.label ?? `Fallback ${i}`)
+      }
+      const effective: AppSettings = {
+        ...settings,
+        llmProvider: slot.provider,
+        llmBaseUrl: slot.baseUrl,
+        llmApiKey: slot.apiKey,
+        llmModel: slot.model
+      }
+      const messages = buildMessages(effective, question, context)
+      if (slot.provider === 'gemini') {
+        await streamGemini(effective, messages, onDelta, signal)
+      } else {
+        await streamOpenAICompatible(effective, messages, onDelta, signal)
+      }
+      return // success — stop here
+    } catch (err) {
+      if (signal.aborted) throw err
+      lastError = err instanceof Error ? err : new Error(String(err))
+      console.warn(`[llm] Provider ${i} failed, trying next: ${lastError.message}`)
+    }
   }
+  throw lastError
 }
 
 async function streamOpenAICompatible(

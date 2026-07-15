@@ -65,7 +65,14 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
           payload.question,
           payload.context,
           (text) => send({ type: 'delta', id: payload.id, text }),
-          controller.signal
+          controller.signal,
+          // Notify the renderer whenever we switch to a fallback provider.
+          (label) =>
+            getWindow()?.webContents.send('llm:stream', {
+              type: 'delta',
+              id: payload.id,
+              text: `\n\n⚠️ Primary provider unavailable — switched to ${label}.\n\n`
+            })
         )
         send({ type: 'done', id: payload.id })
         return ok(null)
